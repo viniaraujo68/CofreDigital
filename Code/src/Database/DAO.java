@@ -59,7 +59,7 @@ public class DAO {
                     u.setLogin(rs.getString("login"));
                     u.setGrupoId(rs.getInt("grupo_id"));
                     u.setSenhaHash(rs.getString("senha_hash"));
-                    u.setTotpSecretoCriptografado(rs.getString("totp_secreto_criptografado"));
+                    u.setTotpSecretoCriptografado(rs.getBytes("totp_secreto_criptografado"));
                     return u;
                 } else {
                     throw new Exception("Usuário não encontrado.");
@@ -85,6 +85,27 @@ public class DAO {
 //        }
 //    }
 
+    public int incrementaAcesso(model.Usuario usuario) throws Exception {
+        String query = "UPDATE Usuarios SET num_acessos = num_acessos + 1 WHERE UID = ?";
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+            return stmt.executeUpdate();
+        }
+    }
+
+    public int getNumeroAcessos(model.Usuario usuario) throws Exception {
+        String query = "SELECT num_acessos FROM Usuarios WHERE UID = ?";
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("num_acessos");
+            } else {
+                throw new Exception("Usuário não encontrado.");
+            }
+        }
+    }
+
     public boolean inserirUsuario(model.Usuario usuario) throws Exception {
         String query = """
         INSERT INTO Usuarios (nome, login, grupo_id, senha_hash, totp_secreto_criptografado)
@@ -96,7 +117,7 @@ public class DAO {
             preparedStatement.setString(2, usuario.getLogin());
             preparedStatement.setInt(3, usuario.getGrupoId());
             preparedStatement.setString(4, usuario.getSenhaHash());
-            preparedStatement.setString(5, usuario.getTotpSecretoCriptografado());
+            preparedStatement.setBytes(5, usuario.getTotpSecretoCriptografado());
 
             int linhasAfetadas = preparedStatement.executeUpdate();
             return linhasAfetadas > 0;

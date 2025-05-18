@@ -17,6 +17,7 @@ import javax.swing.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
@@ -26,6 +27,7 @@ public class CofreApp extends JFrame {
 
     private String caminhoCertificado = null;
     private String caminhoChavePrivada = null;
+    private String fraseSecreta = null;
 
     public CofreApp() {
         super("Cofre Digital");
@@ -87,6 +89,7 @@ public class CofreApp extends JFrame {
         String senha = new String(painel.getCampoSenha().getPassword());
         String confirmar = new String(painel.getCampoConfirmarSenha().getPassword());
         String frase = new String(painel.getCampoFraseSecreta().getPassword());
+        fraseSecreta = frase;
 
         if (!senha.equals(confirmar)) {
             JOptionPane.showMessageDialog(this, "Senhas não coincidem.", "Erro", JOptionPane.ERROR_MESSAGE);
@@ -100,7 +103,6 @@ public class CofreApp extends JFrame {
 
         CertificateUtility util;
         String loginExtraido;
-        byte[] chavePrivadaBytes = null; // agora é visível em todo o método
 
         try {
             util = new CertificateUtility(caminhoCertificado);
@@ -113,32 +115,16 @@ public class CofreApp extends JFrame {
                 return;
             }
 
-            // 2. Verificar assinatura digital
-            byte[] mensagem = new byte[8192];
-            new SecureRandom().nextBytes(mensagem);
-
-            chavePrivadaBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoChavePrivada));
-            PrivateKey chavePrivada = CertificateUtility.carregarChavePrivada(chavePrivadaBytes, frase);
-
-            byte[] assinatura = CertificateUtility.assinarMensagem(chavePrivada, mensagem);
-            PublicKey chavePublica = util.getCertificado().getPublicKey();
-
-            if (!CertificateUtility.verificarAssinatura(chavePublica, mensagem, assinatura)) {
-                JOptionPane.showMessageDialog(this, "Frase secreta inválida ou chave privada não corresponde ao certificado.", "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-
             util.imprimirResumo();
 
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
-                    "Erro ao processar o certificado digital ou a chave privada:\n" + e.getMessage(),
-                    "Erro",
+                    "Erro ao processar o certificado digital:\n" + e.getMessage(),
+                    "Certificado Inválido",
                     JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        // 3. Validações adicionais
         if (!senha.matches("\\d{8,10}")) {
             JOptionPane.showMessageDialog(this,
                     "A senha deve conter entre 8 e 10 dígitos numéricos.",
@@ -156,21 +142,70 @@ public class CofreApp extends JFrame {
         }
 
         try {
-            // 4. Gerar hash da senha
-            String senhaHash = BcryptUtil.hash(senha);
+            // 1. Gerar hash da senha
+            String senhaHash = security.BcryptUtil.hash(senha);
 
-            // 5. Gerar segredo TOTP Base32 e criptografar
-            String totpBase32 = TotpUtil.gerarSecretoBase32();
+            // 2. Gerar segredo TOTP Base32
+            byte[] chaveTotp = new byte[20];
+            new SecureRandom().nextBytes(chaveTotp);
+
+            Base32 base32 = new Base32(Base32.Alphabet.BASE32, false, false);
+            String chaveTotpBase32 = base32.toString(chaveTotp);
+
             SecretKey chaveAES = CryptoUtil.gerarChaveAES(senha);
-            String totpCriptografado = CryptoUtil.criptografar(totpBase32, chaveAES);
+            byte[] totpCriptografadoByte = CryptoUtil.criptografar(chaveTotp, chaveAES);
 
-            // 6. Criar usuário
-            Usuario usuario = new Usuario();
+            String issuer = "Cofre Digital";
+            String uri = String.format(
+                    "otpauth://totp/%s:%s?secret=%s&issuer=%s",
+                    issuer.replace(" ", "%20"),
+                    loginExtraido,
+                    chaveTotpBase32,
+                    issuer.replace(" ", "%20")
+            );
+
+            // Resumo do certificado formatado como string
+            String resumo = String.format("""
+        Resumo do Certificado Digital:
+        
+        Sujeito:  %s
+        Emissor:  %s
+        Válido de: %s
+        Até:       %s
+        Serial:    %s
+        Algoritmo: %s
+        
+        Deseja continuar com o cadastro?
+        """,
+                    util.getCertificado().getSubjectDN().getName(),
+                    util.getCertificado().getIssuerDN().getName(),
+                    util.getCertificado().getNotBefore(),
+                    util.getCertificado().getNotAfter(),
+                    util.getCertificado().getSerialNumber().toString(),
+                    util.getCertificado().getSigAlgName()
+            );
+
+            int opcao = JOptionPane.showConfirmDialog(
+                    this,
+                    resumo,
+                    "Confirmação do Certificado",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.INFORMATION_MESSAGE
+            );
+
+            if (opcao != JOptionPane.OK_OPTION) {
+                JOptionPane.showMessageDialog(this, "Cadastro cancelado pelo usuário.");
+                return;
+            }
+
+            // 5. Criar usuário e inserir no banco
+            model.Usuario usuario = new model.Usuario();
             usuario.setNome("Administrador");
             usuario.setLogin(loginExtraido);
-            usuario.setGrupoId(1);
+            usuario.setGrupoId(1); // grupo_id "Administrador", você pode obter dinamicamente se quiser
             usuario.setSenhaHash(senhaHash);
-            usuario.setTotpSecretoCriptografado(totpCriptografado);
+            usuario.setTotpSecretoCriptografado(totpCriptografadoByte);
+
 
             DAO dao = DAO.getInstance();
             if (!dao.inserirUsuario(usuario)) {
@@ -178,34 +213,42 @@ public class CofreApp extends JFrame {
                 return;
             }
 
-            // 7. Exibir QR Code TOTP
-            String label = "Cofre Digital:" + loginExtraido;
-            String otpAuthURL = "otpauth://totp/" + URLEncoder.encode(label, "UTF-8") +
-                    "?secret=" + totpBase32 + "&issuer=Cofre+Digital";
-            BufferedImage qrImage = generateQRCodeImage(otpAuthURL, 200, 200);
-            JOptionPane.showMessageDialog(null, new JLabel(new ImageIcon(qrImage)), "Escaneie com o Google Authenticator", JOptionPane.PLAIN_MESSAGE);
+            BufferedImage qrImage = generateQRCodeImage(uri, 200, 200);
+            ImageIcon qrIcon = new ImageIcon(qrImage);
+            JLabel qrLabel = new JLabel(qrIcon);
+            JOptionPane.showMessageDialog(null, qrLabel, "Escaneie com o Google Authenticator", JOptionPane.PLAIN_MESSAGE);
 
-            // 8. Salvar certificado e chave privada criptografada no banco
+            // 6. Recuperar UID
             int uid = dao.getUserIdByEmail(loginExtraido);
 
-            String certificadoPEM = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoCertificado)), java.nio.charset.StandardCharsets.UTF_8);
-            String chavePrivadaCriptografada = CryptoUtil.criptografar(new String(chavePrivadaBytes, java.nio.charset.StandardCharsets.UTF_8), chaveAES);
+            // 7. Ler e criptografar a chave privada
+            byte[] chaveBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoChavePrivada));
+            byte[] chavePrivadaCriptografada = security.CryptoUtil.criptografar(chaveBytes, chaveAES);
+            String chavePrivadaCriptografagaTexto = new String(chavePrivadaCriptografada, StandardCharsets.UTF_8);
 
-            dao.insertChaveiro(uid, certificadoPEM, chavePrivadaCriptografada);
+            // 8. Ler o certificado como texto
+            byte[] certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoCertificado));
+            String certificadoTexto = new String(certBytes, java.nio.charset.StandardCharsets.UTF_8);
 
-            // 9. Finalizar
+            // 9. Salvar no chaveiro
+            dao.insertChaveiro(uid, certificadoTexto, chavePrivadaCriptografagaTexto);
+
+            // 10. Finalizar
             JOptionPane.showMessageDialog(this, "Administrador cadastrado com sucesso!");
             getContentPane().removeAll();
             repaint();
             JOptionPane.showMessageDialog(this, "Sistema pronto para login.");
 
+            iniciarLoginEmail();
+
         } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Erro ao processar e salvar os dados:\n" + e.getMessage(),
+                    "Erro",
+                    JOptionPane.ERROR_MESSAGE);
             e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Erro ao processar e salvar os dados:\n" + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
         }
     }
-
-
 
 
     private void sair() {
@@ -326,10 +369,8 @@ public class CofreApp extends JFrame {
 
             LoginTotpPanel totpPanel = new LoginTotpPanel(this, u, senha,(usuario, sucesso) -> {
                 if (sucesso) {
-                    System.out.println("sucesso");
-                    //iniciarTelaPrincipal(usuario);
+                    iniciarTelaPrincipal(usuario);
                 } else {
-                    System.out.println("erro");
                     iniciarLoginEmail();
                 }
             });
@@ -343,4 +384,52 @@ public class CofreApp extends JFrame {
             e.printStackTrace();
         }
     }
+
+    private void iniciarTelaPrincipal(Usuario usuario) {
+        DAO dao = DAO.getInstance();
+        try {
+            dao.incrementaAcesso(usuario);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Erro ao incrementar acesso: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+        ui.TelaInicialPanel painel = new ui.TelaInicialPanel(
+                usuario,
+
+                // onCadastro
+                e -> {
+                    JPanel cadastroPanel = new TelaCadastroUsuariosPanel(usuario); // ou só (this) se preferir
+                    setContentPane(cadastroPanel);
+                    revalidate();
+                    repaint();
+                },
+
+                // onConsulta
+                e -> {
+                    JPanel consultaPanel = new TelaConsultaArquivosPanel(usuario); // ou só (this)
+                    setContentPane(consultaPanel);
+                    revalidate();
+                    repaint();
+                },
+
+                // onSair
+                e -> {
+                    int opcao = JOptionPane.showConfirmDialog(
+                            this,
+                            "Deseja realmente sair e retornar à tela de login?",
+                            "Sair",
+                            JOptionPane.YES_NO_OPTION
+                    );
+                    if (opcao == JOptionPane.YES_OPTION) {
+                        iniciarLoginEmail();
+                    }
+                }
+        );
+
+
+        setContentPane(painel);
+        revalidate();
+        repaint();
+    }
+
 }

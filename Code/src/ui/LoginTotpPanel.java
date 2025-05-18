@@ -1,8 +1,10 @@
 package ui;
 
 import model.Usuario;
+import security.Base32;
 import security.TotpUtil;
 
+import javax.crypto.SecretKey;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -36,12 +38,36 @@ public class LoginTotpPanel extends JPanel {
         JButton verificarBtn = new JButton("Verificar Código");
         verificarBtn.addActionListener((ActionEvent e) -> {
             String codigo = campoCodigo.getText().trim();
+            long codigoLong = Long.parseLong(codigo);
 
-            boolean valido = TotpUtil.validarCodigoTOTP(
-                    usuario.getTotpSecretoCriptografado(),
-                    senha, //usuario.getSenhaHash(),
-                    codigo
-            );
+            boolean valido;
+            try {
+                // 1. Derivar chave AES da senha do usuário
+                SecretKey chaveAES = security.CryptoUtil.gerarChaveAES(senha);
+
+                // 2. Descriptografar chave TOTP em Base32
+                byte[] chaveTotp = security.CryptoUtil.descriptografar(usuario.getTotpSecretoCriptografado(), chaveAES);
+                Base32 base32 = new Base32(Base32.Alphabet.BASE32, false, false);
+                if (chaveTotp == null) throw new IllegalArgumentException("Chave TOTP inválida");
+
+                long agora = System.currentTimeMillis() / 1000L;
+                long intervaloAtual = agora / 30;
+
+                valido = false;
+                for (int delta = -1; delta <= 1; delta++) {
+                    long intervalo = intervaloAtual + delta;
+                    long esperado = TotpUtil.gerarCodigo(chaveTotp, intervalo);
+                    if (codigoLong == esperado) {
+                        valido = true;
+                        break;
+                    }
+                }
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Erro na verificação do código TOTP.", "Erro", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
 
             if (valido) {
                 callback.accept(usuario, true);

@@ -11,8 +11,10 @@ import java.security.spec.*;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.EncryptedPrivateKeyInfo;
+import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.Signature;
@@ -73,39 +75,35 @@ public class CertificateUtility {
     }
 
     public static PrivateKey carregarChavePrivada(byte[] chaveBytes, String fraseSecreta) throws Exception {
-        String chavePEM = new String(chaveBytes, StandardCharsets.UTF_8);
-
-        // Remove cabeçalhos e rodapés e espaços em branco
-        chavePEM = chavePEM.replaceAll("-----BEGIN (ENCRYPTED )?PRIVATE KEY-----", "")
+        // 1. Converta o conteúdo em texto
+        String chaveCodificada = new String(chaveBytes, StandardCharsets.UTF_8)
+                .replaceAll("-----BEGIN (ENCRYPTED )?PRIVATE KEY-----", "")
                 .replaceAll("-----END (ENCRYPTED )?PRIVATE KEY-----", "")
                 .replaceAll("\\s", "");
 
-        byte[] chaveDecodificada;
-        try {
-            chaveDecodificada = Base64.getDecoder().decode(chavePEM);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Erro ao decodificar a chave privada em Base64. Verifique se o arquivo contém apenas caracteres válidos.");
+        // 2. Decodifique de BASE32 (não Base64)
+        Base32 base32 = new Base32(Base32.Alphabet.BASE32, false, false);
+        byte[] chaveCriptografada = base32.fromString(chaveCodificada);
+        if (chaveCriptografada == null) {
+            throw new IllegalArgumentException("Erro ao decodificar a chave privada em BASE32.");
         }
 
-        try {
-            // Tenta descriptografar chave protegida
-            EncryptedPrivateKeyInfo encryptedInfo = new EncryptedPrivateKeyInfo(chaveDecodificada);
-            PBEKeySpec pbeKeySpec = new PBEKeySpec(fraseSecreta.toCharArray());
-            SecretKeyFactory keyFactory = SecretKeyFactory.getInstance(encryptedInfo.getAlgName());
-            Key pbeKey = keyFactory.generateSecret(pbeKeySpec);
-            Cipher cipher = Cipher.getInstance(encryptedInfo.getAlgName());
-            cipher.init(Cipher.DECRYPT_MODE, pbeKey, encryptedInfo.getAlgParameters());
+        // 3. Gere chave AES (256 bits) com SHA1PRNG a partir da frase secreta
+        SecureRandom sha1Prng = SecureRandom.getInstance("SHA1PRNG");
+        sha1Prng.setSeed(fraseSecreta.getBytes(StandardCharsets.UTF_8));
+        byte[] chaveAESBytes = new byte[32]; // 256 bits = 32 bytes
+        sha1Prng.nextBytes(chaveAESBytes);
+        SecretKey chaveAES = new SecretKeySpec(chaveAESBytes, "AES");
 
-            PKCS8EncodedKeySpec keySpec = encryptedInfo.getKeySpec(cipher);
-            KeyFactory kf = KeyFactory.getInstance("RSA");
-            return kf.generatePrivate(keySpec);
+        // 4. Descriptografe a chave privada
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, chaveAES);
+        byte[] chaveDescriptografada = cipher.doFinal(chaveCriptografada);
 
-        } catch (IOException e) {
-            // Caso não seja uma chave criptografada
-            PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(chaveDecodificada);
-            KeyFactory kf = KeyFactory.getInstance("RSA");
-            return kf.generatePrivate(keySpec);
-        }
+        // 5. Converta para objeto PrivateKey (formato PKCS#8)
+        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(chaveDescriptografada);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        return keyFactory.generatePrivate(keySpec);
     }
 
 

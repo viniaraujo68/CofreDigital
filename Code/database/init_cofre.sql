@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS Usuarios (
                                         login TEXT UNIQUE NOT NULL,
                                         grupo_id INTEGER NOT NULL,
                                         senha_hash TEXT NOT NULL,
-                                        totp_secreto_criptografado TEXT NOT NULL,
+                                        totp_secreto_criptografado BLOB NOT NULL,
+                                        num_acessos INTEGER NOT NULL DEFAULT 0,
                                         FOREIGN KEY (grupo_id) REFERENCES Grupos(GID)
     );
 

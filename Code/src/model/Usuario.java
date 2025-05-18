@@ -9,7 +9,7 @@ public class Usuario {
     private String login; // email
     private int grupoId;
     private String senhaHash;
-    private String totpSecretoCriptografado;
+    private byte[] totpSecretoCriptografado;
 
     // Getters e Setters
 
@@ -53,6 +53,17 @@ public class Usuario {
         }
     }
 
+    public String getGrupo() {
+        switch (grupoId) {
+            case 1:
+                return "Administrador";
+            case 2:
+                return "Usuario";
+            default:
+                throw new IllegalArgumentException("Grupo inválido: " + grupoId);
+        }
+    }
+
     public int getGrupoId() {
         return grupoId;
     }
@@ -69,11 +80,11 @@ public class Usuario {
         this.senhaHash = senhaHash;
     }
 
-    public String getTotpSecretoCriptografado() {
+    public byte[] getTotpSecretoCriptografado() {
         return totpSecretoCriptografado;
     }
 
-    public void setTotpSecretoCriptografado(String totpSecretoCriptografado) {
+    public void setTotpSecretoCriptografado(byte[] totpSecretoCriptografado) {
         this.totpSecretoCriptografado = totpSecretoCriptografado;
     }
 }

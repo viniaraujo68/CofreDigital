@@ -21,7 +21,7 @@ public class Database {
 
         database = new Database();
 
-        String url = "jdbc:sqlite:C:\\Users\\Vinicius Araujo\\Documents\\aPuc\\trabalhos\\CofreDigital\\code.database.cofre.db";
+        String url = "jdbc:sqlite:C:\\Users\\Vinicius Araujo\\Documents\\aPuc\\trabalhos\\CofreDigital\\Code\\database\\cofre.db";
 
 
         database.connection = DriverManager.getConnection(url);
