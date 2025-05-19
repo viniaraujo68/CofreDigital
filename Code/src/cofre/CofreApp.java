@@ -56,6 +56,7 @@ public class CofreApp extends JFrame {
                 String frase = PopupFrasePanel.solicitarFraseSecreta(this);
                 if (frase == null || frase.isEmpty()) {
                     JOptionPane.showMessageDialog(this, "Frase secreta é obrigatória. Encerrando.", "Erro", JOptionPane.ERROR_MESSAGE);
+                    Database.log(1002);
                     System.exit(0); // ou volte para uma tela anterior
                 } else {
                     this.fraseSecreta = frase;
@@ -175,7 +176,6 @@ public class CofreApp extends JFrame {
             }
 
             util.imprimirResumo();
-            if (usuarioCorrente != null) Database.log(6008, usuarioCorrente.getNome());
         } catch (Exception e) {
             if (usuarioCorrente != null) { Database.log(6004, usuarioCorrente.getNome()); }
             JOptionPane.showMessageDialog(this,
@@ -260,7 +260,7 @@ public class CofreApp extends JFrame {
                 JOptionPane.showMessageDialog(this, "Cadastro cancelado pelo usuário.");
                 return;
             }
-            if (usuarioCorrente != null) { Database.log(6009, usuarioCorrente.getNome());}
+            if (usuarioCorrente != null) { Database.log(6008, usuarioCorrente.getNome());}
 
             // 5. Criar usuário e inserir no banco
             model.Usuario usuario = new model.Usuario();
@@ -435,6 +435,7 @@ public class CofreApp extends JFrame {
                         dao.resetarTentativas(usuario, "tentativas_senha");
                         Database.log(3006, usuario.getNome());
                         Database.log(3007, usuario.getNome());
+                        Database.log(3002, usuario.getNome());
                         JOptionPane.showMessageDialog(this, "Limite de tentativas excedido. Retornando à etapa 1.", "Erro", JOptionPane.ERROR_MESSAGE);
                         iniciarLoginEmail();
                     } else {
@@ -473,8 +474,10 @@ public class CofreApp extends JFrame {
                 if (sucesso) {
                     Database.log(4003, usuario.getNome());
                     usuarioCorrente = usuario;
+                    Database.log(4002, usuario.getNome());
                     iniciarTelaPrincipal(usuario);
                 } else {
+                    Database.log(4002, usuario.getNome());
                     iniciarLoginEmail();
                 }
             });
@@ -525,6 +528,7 @@ public class CofreApp extends JFrame {
                     });
                     painelSair.getBotaoEncerrarSistema().addActionListener(ev -> {
                         Database.log(8003, usuarioCorrente.getNome());
+                        Database.log(1002);
                         System.exit(0);
                     });
 
