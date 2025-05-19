@@ -1,6 +1,9 @@
 package security;
 
+import Database.DAO;
+
 import java.io.*;
+import java.nio.file.Files;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.cert.CertificateException;
@@ -74,6 +77,36 @@ public class CertificateUtility {
         return certificado;
     }
 
+    public static PrivateKey carregarChavePrivadaCriptografada(File arquivo, String fraseSecreta) {
+        try {
+            SecretKey chaveAES = CryptoUtil.gerarChaveAES(fraseSecreta);
+            byte[] dadosCriptografados = Files.readAllBytes(arquivo.toPath());
+            byte[] descriptografado = CryptoUtil.descriptografar(dadosCriptografados, chaveAES);
+
+            // Detecta e remove cabeçalhos PEM, se presentes
+            String conteudo = new String(descriptografado, "UTF-8");
+
+            if (conteudo.contains("-----BEGIN")) {
+                // Trata como PEM base64
+                String base64 = conteudo
+                        .replace("-----BEGIN PRIVATE KEY-----", "")
+                        .replace("-----END PRIVATE KEY-----", "")
+                        .replaceAll("\\s", "");
+
+                byte[] chaveBytes = Base64.getDecoder().decode(base64);
+                PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(chaveBytes);
+                return KeyFactory.getInstance("RSA").generatePrivate(keySpec);
+            } else {
+                // Trata como binário PKCS#8 DER direto
+                PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(descriptografado);
+                return KeyFactory.getInstance("RSA").generatePrivate(keySpec);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao carregar chave privada criptografada: " + e.getMessage(), e);
+        }
+    }
+
+
     public static PrivateKey carregarChavePrivada(byte[] chaveBytes, String fraseSecreta) throws Exception {
         // 1. Converta o conteúdo em texto
         String chaveCodificada = new String(chaveBytes, StandardCharsets.UTF_8)
@@ -120,4 +153,32 @@ public class CertificateUtility {
         verificador.update(dados);
         return verificador.verify(assinaturaBytes);
     }
+
+    public static PrivateKey carregarChavePrivadaAdmin(String fraseSecreta) throws Exception {
+        DAO dao = DAO.getInstance();
+        byte[] chavePrivadaCriptografada = dao.getChavePrivadaAdmin();
+
+        // Gera chave AES a partir da frase
+        SecretKey chaveAES = CryptoUtil.gerarChaveAES(fraseSecreta);
+
+        // Descriptografa os bytes da chave privada
+        byte[] chaveDescriptografada = CryptoUtil.descriptografar(chavePrivadaCriptografada, chaveAES);
+
+        // Constrói a chave privada PKCS8
+        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(chaveDescriptografada);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePrivate(keySpec);
+    }
+
+    public static X509Certificate carregarCertificadoAdmin() throws Exception {
+        DAO dao = DAO.getInstance();
+        byte[] certBytes = dao.getCertificadoAdmin();
+
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(certBytes)) {
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) factory.generateCertificate(bais);
+        }
+    }
+
+
 }

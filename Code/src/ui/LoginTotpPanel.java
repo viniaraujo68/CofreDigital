@@ -1,23 +1,24 @@
 package ui;
 
 import model.Usuario;
-import security.Base32;
 import security.TotpUtil;
+import Database.DAO;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
 public class LoginTotpPanel extends JPanel {
 
     private final JTextField campoCodigo;
     private final JLabel tentativasLabel;
-    private int tentativas = 0;
     private final int MAX_TENTATIVAS = 3;
 
     public LoginTotpPanel(JFrame frame, Usuario usuario, String senha, BiConsumer<Usuario, Boolean> callback) {
+        DAO dao = DAO.getInstance();        AtomicInteger tentativas = new AtomicInteger(usuario.getTentativas("tentativasTotp"));
         setLayout(new BorderLayout(20, 20));
         setBorder(BorderFactory.createEmptyBorder(20, 40, 20, 40));
 
@@ -32,56 +33,77 @@ public class LoginTotpPanel extends JPanel {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         campoCodigo = new JTextField(10);
-        tentativasLabel = new JLabel("Tentativas restantes: " + (MAX_TENTATIVAS - tentativas));
+        tentativasLabel = new JLabel("Tentativas restantes: " + (MAX_TENTATIVAS - tentativas.get()));
         tentativasLabel.setFont(new Font("SansSerif", Font.PLAIN, 14));
 
         JButton verificarBtn = new JButton("Verificar Código");
         verificarBtn.addActionListener((ActionEvent e) -> {
-            String codigo = campoCodigo.getText().trim();
-            long codigoLong = Long.parseLong(codigo);
+        String codigo = campoCodigo.getText().trim();
+        long codigoLong;
 
-            boolean valido;
-            try {
-                // 1. Derivar chave AES da senha do usuário
-                SecretKey chaveAES = security.CryptoUtil.gerarChaveAES(senha);
+        try {
+            codigoLong = Long.parseLong(codigo);
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Código inválido. Digite apenas números.", "Erro", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
 
-                // 2. Descriptografar chave TOTP em Base32
-                byte[] chaveTotp = security.CryptoUtil.descriptografar(usuario.getTotpSecretoCriptografado(), chaveAES);
-                Base32 base32 = new Base32(Base32.Alphabet.BASE32, false, false);
-                if (chaveTotp == null) throw new IllegalArgumentException("Chave TOTP inválida");
+        boolean valido;
+        try {
+            // 1. Derivar chave AES da senha do usuário
+            SecretKey chaveAES = security.CryptoUtil.gerarChaveAES(senha);
 
-                long agora = System.currentTimeMillis() / 1000L;
-                long intervaloAtual = agora / 30;
+            // 2. Descriptografar chave TOTP em Base32
+            byte[] chaveTotp = security.CryptoUtil.descriptografar(usuario.getTotpSecretoCriptografado(), chaveAES);
+            if (chaveTotp == null) throw new IllegalArgumentException("Chave TOTP inválida");
 
-                valido = false;
-                for (int delta = -1; delta <= 1; delta++) {
-                    long intervalo = intervaloAtual + delta;
-                    long esperado = TotpUtil.gerarCodigo(chaveTotp, intervalo);
-                    if (codigoLong == esperado) {
-                        valido = true;
-                        break;
-                    }
+            long agora = System.currentTimeMillis() / 1000L;
+            long intervaloAtual = agora / 30;
+
+            valido = false;
+            for (int delta = -1; delta <= 1; delta++) {
+                long intervalo = intervaloAtual + delta;
+                long esperado = TotpUtil.gerarCodigo(chaveTotp, intervalo);
+                if (codigoLong == esperado) {
+                    valido = true;
+                    break;
                 }
+            }
 
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Erro na verificação do código TOTP.", "Erro", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (valido) {
+            callback.accept(usuario, true);
+        } else {
+            tentativas.getAndIncrement();
+            usuario.setTentativasTotp(usuario.getTentativas("tentativasTotp"));
+            try {
+                dao.incrementaQtdTentativas(usuario, "tentativasTotp");
             } catch (Exception ex) {
                 ex.printStackTrace();
-                JOptionPane.showMessageDialog(this, "Erro na verificação do código TOTP.", "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
+                JOptionPane.showMessageDialog(this, "Erro ao registrar tentativa no banco.", "Erro", JOptionPane.ERROR_MESSAGE);
             }
 
-            if (valido) {
-                callback.accept(usuario, true);
-            } else {
-                tentativas++;
-                if (tentativas >= MAX_TENTATIVAS) {
-                    JOptionPane.showMessageDialog(this, "Código incorreto. Retornando à etapa 1.", "Erro", JOptionPane.ERROR_MESSAGE);
-                    callback.accept(usuario, false);
-                } else {
-                    tentativasLabel.setText("Tentativas restantes: " + (MAX_TENTATIVAS - tentativas));
-                    JOptionPane.showMessageDialog(this, "Código incorreto.", "Erro", JOptionPane.ERROR_MESSAGE);
+            if (usuario.getTentativas("tentativasTotp") >= MAX_TENTATIVAS) {
+                JOptionPane.showMessageDialog(this, "Código incorreto. Retornando à etapa 1.", "Erro", JOptionPane.ERROR_MESSAGE);
+                try {
+                    usuario.setTentativasTotp(0);
+                    dao.atualizarUltimoBloqueio(usuario);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(this, "Erro ao registrar bloqueio no banco.", "Erro", JOptionPane.ERROR_MESSAGE);
                 }
+                callback.accept(usuario, false);
+            } else {
+                tentativasLabel.setText("Tentativas restantes: " + (MAX_TENTATIVAS - tentativas.get()));
+                JOptionPane.showMessageDialog(this, "Código incorreto.", "Erro", JOptionPane.ERROR_MESSAGE);
             }
-        });
+        }
+    });
 
         int linha = 0;
         addLinha(painelCentral, gbc, linha++, "Código TOTP:", campoCodigo);

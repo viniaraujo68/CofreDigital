@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS Usuarios (
 CREATE TABLE IF NOT EXISTS Chaveiro (
                                         KID INTEGER PRIMARY KEY AUTOINCREMENT,
                                         UID INTEGER NOT NULL,
-                                        certificado_digital TEXT NOT NULL,
-                                        chave_privada_criptografada TEXT NOT NULL,
+                                        certificado_digital BLOB NOT NULL,
+                                        chave_privada_criptografada BLOB NOT NULL,
                                         FOREIGN KEY (UID) REFERENCES Usuarios(UID)
     );
 
