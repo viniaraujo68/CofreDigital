@@ -1,3 +1,6 @@
+// Francisco Lou Gardenberg - 2211275
+// Vinicius Barros Pessoa de Araujo - 2210392
+
 package model;
 
 import javax.crypto.SecretKey;
@@ -86,26 +89,10 @@ public class Usuario {
         return totpSecretoCriptografado;
     }
 
-    public void setTotpSecretoCriptografado(byte[] totpSecretoCriptografado) {
-        this.totpSecretoCriptografado = totpSecretoCriptografado;
-    }
+    public void setTotpSecretoCriptografado(byte[] totpSecretoCriptografado) { this.totpSecretoCriptografado = totpSecretoCriptografado; }
 
-    public int getTentativas(String tipo) {
-        switch (tipo) {
-            case "tentativasSenha":
-                return this.tentativasSenha;
-            case "tentativasTotp":
-                return this.tentativasTotp;
-            default:
-                throw new IllegalArgumentException("Tipo de tentativa inválido: " + tipo);
-        }
-    }
-    
-    public void setTentativasSenha(int qtd) {
-        this.tentativasSenha = qtd;
-    }
-
-    public void setTentativasTotp(int qtd) {
-        this.tentativasTotp = qtd;
-    }
+    public int getTentativasSenha() { return this.tentativasSenha; }
+    public int getTentativasTotp() { return this.tentativasTotp; }
+    public void setTentativasSenha(int qtd) { this.tentativasSenha = qtd; }
+    public void setTentativasTotp(int qtd) { this.tentativasTotp = qtd; }
 }

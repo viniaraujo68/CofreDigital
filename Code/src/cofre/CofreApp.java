@@ -1,3 +1,6 @@
+// Francisco Lou Gardenberg - 2211275
+// Vinicius Barros Pessoa de Araujo - 2210392
+
 package cofre;
 
 import com.google.zxing.BarcodeFormat;
@@ -9,10 +12,12 @@ import model.Usuario;
 import ui.CadastroPanel;
 import security.CertificateUtility;
 import Database.DAO;
+import Database.Database;
 import security.*;
 import ui.LoginTotpPanel;
 import ui.SairPanel;
 import ui.TelaConsultaArquivosPanel;
+import ui.PopupFrasePanel;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
@@ -21,13 +26,22 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 
 public class CofreApp extends JFrame {
 
     private String caminhoCertificado = null;
     private String caminhoChavePrivada = null;
-    private String fraseSecreta = null;
     private Usuario usuarioCorrente;
+    private final int MAX_TENTATIVAS = 3;
+    public static String fraseSecreta = null;
 
     public CofreApp() {
         super("Cofre Digital");
@@ -36,10 +50,20 @@ public class CofreApp extends JFrame {
         setLocationRelativeTo(null); // Centraliza na tela
 
         try {
+            Database.log(1001);
             Boolean firstTime = DAO.getInstance().getUsersCount() == 0;
             if (!firstTime) {
-                iniciarLoginEmail();
+                String frase = PopupFrasePanel.solicitarFraseSecreta(this);
+                if (frase == null || frase.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Frase secreta é obrigatória. Encerrando.", "Erro", JOptionPane.ERROR_MESSAGE);
+                    System.exit(0); // ou volte para uma tela anterior
+                } else {
+                    this.fraseSecreta = frase;
+                    Database.log(1006);
+                    iniciarLoginEmail();
+                }
             } else {
+                Database.log(1005);
                 iniciarCadastro(null);
             }
         } catch (Exception e) {
@@ -86,6 +110,10 @@ public class CofreApp extends JFrame {
     }
 
     private void cadastrar(CadastroPanel painel) {
+        if (usuarioCorrente != null) {
+            Database.log(6002, usuarioCorrente.getNome());
+
+        }
         String senha = new String(painel.getCampoSenha().getPassword());
         String confirmar = new String(painel.getCampoConfirmarSenha().getPassword());
         String frase = new String(painel.getCampoFraseSecreta().getPassword());
@@ -147,8 +175,9 @@ public class CofreApp extends JFrame {
             }
 
             util.imprimirResumo();
-
+            if (usuarioCorrente != null) Database.log(6008, usuarioCorrente.getNome());
         } catch (Exception e) {
+            if (usuarioCorrente != null) { Database.log(6004, usuarioCorrente.getNome()); }
             JOptionPane.showMessageDialog(this,
                     "Erro ao processar o certificado digital:\n" + e.getMessage(),
                     "Certificado Inválido",
@@ -157,6 +186,7 @@ public class CofreApp extends JFrame {
         }
 
         if (!senha.matches("\\d{8,10}")) {
+            if (usuarioCorrente != null) { Database.log(6003, usuarioCorrente.getNome()); }
             JOptionPane.showMessageDialog(this,
                     "A senha deve conter entre 8 e 10 dígitos numéricos.",
                     "Senha Inválida",
@@ -165,6 +195,7 @@ public class CofreApp extends JFrame {
         }
 
         if (contemSequenciaNumerica(senha)) {
+            if (usuarioCorrente != null) { Database.log(6003, usuarioCorrente.getNome()); }
             JOptionPane.showMessageDialog(this,
                     "A senha não pode conter sequências numéricas como 123456 ou 987654.",
                     "Senha Inválida",
@@ -225,20 +256,28 @@ public class CofreApp extends JFrame {
             );
 
             if (opcao != JOptionPane.OK_OPTION) {
+                if (usuarioCorrente != null) { Database.log(6009, usuarioCorrente.getNome()); }
                 JOptionPane.showMessageDialog(this, "Cadastro cancelado pelo usuário.");
                 return;
             }
+            if (usuarioCorrente != null) { Database.log(6009, usuarioCorrente.getNome());}
 
             // 5. Criar usuário e inserir no banco
             model.Usuario usuario = new model.Usuario();
-            usuario.setNome("Administrador");
+            String subject = util.getCertificado().getSubjectDN().getName();
+
+            Pattern pattern = Pattern.compile("CN=([^,]+)");
+            Matcher matcher = pattern.matcher(subject);
+            String cn = null;
+            if (matcher.find()) {
+                cn = matcher.group(1); // Agora é seguro acessar
+            }
+            usuario.setNome(cn);
             usuario.setLogin(loginExtraido);
             System.out.println("Id do grupo:" + stringToGroup(grupo));
             usuario.setGrupoId(stringToGroup(grupo)); // grupo_id "Administrador", você pode obter dinamicamente se quiser
             usuario.setSenhaHash(senhaHash);
             usuario.setTotpSecretoCriptografado(totpCriptografadoByte);
-            usuario.setTentativasSenha(0);
-            usuario.setTentativasTotp(0);
 
 
             DAO dao = DAO.getInstance();
@@ -289,7 +328,7 @@ public class CofreApp extends JFrame {
 
     private void sair() {
         if (usuarioCorrente != null) {
-            System.out.println("teste");
+            Database.log(6010, usuarioCorrente.getNome());
             iniciarTelaPrincipal(usuarioCorrente);
         }
 
@@ -328,6 +367,7 @@ public class CofreApp extends JFrame {
     }
 
     private void iniciarLoginEmail() {
+        Database.log(2001);
         final ui.LoginEmailPanel[] painelRef = new ui.LoginEmailPanel[1];
 
         DAO dao = DAO.getInstance();
@@ -342,9 +382,18 @@ public class CofreApp extends JFrame {
             try {
                 if (dao.getEmailCount(email) == 0) {
                     JOptionPane.showMessageDialog(this, "Email não encontrado.", "Erro", JOptionPane.ERROR_MESSAGE);
+                    Database.log(2005, email);
                     return;
                 }
-                iniciarLoginSenha(email);
+                Usuario usuario = dao.getUserByEmail(email);
+                if (diferencaEmMinutos(dao.consultarUltimoBloqueio(usuario)) >= 2) {
+                    Database.log(2003, usuario.getNome());
+                    Database.log(2002, usuario.getNome());
+                    iniciarLoginSenha(email);
+                } else {
+                    Database.log(2004, usuario.getNome());
+                    JOptionPane.showMessageDialog(this, "Acesso bloqueado. Tente novamente mais tarde.", "Erro",  JOptionPane.ERROR_MESSAGE);
+                }
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Erro ao verificar email: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
             }
@@ -359,54 +408,70 @@ public class CofreApp extends JFrame {
         final ui.LoginSenhaPanel[] painelRef = new ui.LoginSenhaPanel[1];
         DAO dao = DAO.getInstance();
 
-        painelRef[0] = new ui.LoginSenhaPanel((possiveisSenhas, evt) -> {
-            if (possiveisSenhas.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Senha não pode estar vazia.", "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+        try {
+            Usuario usuario = dao.getUserByEmail(email);
+            Database.log(3001, usuario.getNome());
 
-            try {
-                Usuario u = dao.getUserByEmail(email);
-                if (u == null) {
-                    JOptionPane.showMessageDialog(this, "Usuário não encontrado.", "Erro", JOptionPane.ERROR_MESSAGE);
+            painelRef[0] = new ui.LoginSenhaPanel(usuario, (possiveisSenhas, evt) -> {
+                if (possiveisSenhas.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Senha não pode estar vazia.", "Erro", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
-                String hashArmazenado = u.getSenhaHash();
+                try {
+                    String hashArmazenado = usuario.getSenhaHash();
 
-                // Tenta todas as combinações possíveis
-                for (String senhaTentativa : possiveisSenhas) {
-                    if (security.BcryptUtil.verify(senhaTentativa, hashArmazenado)) {
-                        iniciarLoginTotp(email, senhaTentativa);
-                        return;
+                    for (String senhaTentativa : possiveisSenhas) {
+                        if (security.BcryptUtil.verify(senhaTentativa, hashArmazenado)) {
+                            Database.log(3003, usuario.getNome());
+                            Database.log(3002, usuario.getNome());
+                            iniciarLoginTotp(email, senhaTentativa);
+                            return;
+                        }
                     }
+
+                    if (dao.getQtdTentativas(usuario, "tentativas_senha") == 2) {
+                        dao.atualizarUltimoBloqueio(usuario);
+                        dao.resetarTentativas(usuario, "tentativas_senha");
+                        Database.log(3006, usuario.getNome());
+                        Database.log(3007, usuario.getNome());
+                        JOptionPane.showMessageDialog(this, "Limite de tentativas excedido. Retornando à etapa 1.", "Erro", JOptionPane.ERROR_MESSAGE);
+                        iniciarLoginEmail();
+                    } else {
+                        dao.incrementaQtdTentativas(usuario, "tentativas_senha");
+                        int qtdTentativas = dao.getQtdTentativas(usuario, "tentativas_senha");
+                        Database.log(3006 - (MAX_TENTATIVAS - qtdTentativas), usuario.getNome());
+                        JOptionPane.showMessageDialog(this, "Senha incorreta.", "Erro", JOptionPane.ERROR_MESSAGE);
+                        painelRef[0].setTentativasRestantes(dao.getQtdTentativas(usuario, "tentativas_senha"));
+                        painelRef[0].zerarTentativa();
+                    }
+
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "Erro ao verificar senha: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+                    ex.printStackTrace();
                 }
+            });
 
-                JOptionPane.showMessageDialog(this, "Senha incorreta.", "Erro", JOptionPane.ERROR_MESSAGE);
+            setContentPane(painelRef[0]);
+            revalidate();
+            repaint();
 
-
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Erro ao verificar senha: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
-                ex.printStackTrace();
-            }
-        });
-
-        setContentPane(painelRef[0]);
-        revalidate();
-        repaint();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Erro ao carregar painel de senha: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
+        }
     }
+
 
     private void iniciarLoginTotp(String email, String senha) {
         DAO dao = DAO.getInstance();
         try {
             Usuario u = dao.getUserByEmail(email);
-            if (u == null) {
-                JOptionPane.showMessageDialog(this, "Usuário não encontrado.", "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+            Database.log(4001, u.getNome());
 
             LoginTotpPanel totpPanel = new LoginTotpPanel(this, u, senha,(usuario, sucesso) -> {
                 if (sucesso) {
+                    Database.log(4003, usuario.getNome());
                     usuarioCorrente = usuario;
                     iniciarTelaPrincipal(usuario);
                 } else {
@@ -427,6 +492,7 @@ public class CofreApp extends JFrame {
     private void iniciarTelaPrincipal(Usuario usuario) {
         DAO dao = DAO.getInstance();
         try {
+            Database.log(5001, usuario.getNome());
             dao.incrementaAcesso(usuario);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this, "Erro ao incrementar acesso: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
@@ -437,25 +503,35 @@ public class CofreApp extends JFrame {
 
                 // onCadastro
                 e -> {
+                    Database.log(5002, usuario.getNome());
                     iniciarCadastro(usuarioCorrente);
                 },
 
                 // onConsulta
                 e -> {
+                    Database.log(5003, usuario.getNome());
                     iniciarTelaConsulta(usuario);
                 },
 
                 // onSair
                 e -> {
+                    Database.log(5004, usuario.getNome());
                     SairPanel painelSair = new SairPanel(null, null, null);
 
                     painelSair.getBotaoEncerrarSessao().addActionListener(ev-> {
+                        Database.log(8002, usuarioCorrente.getNome());
                         usuarioCorrente = null;
                         iniciarLoginEmail();
                     });
-                    painelSair.getBotaoEncerrarSistema().addActionListener(ev -> System.exit(0));
+                    painelSair.getBotaoEncerrarSistema().addActionListener(ev -> {
+                        Database.log(8003, usuarioCorrente.getNome());
+                        System.exit(0);
+                    });
 
-                    painelSair.getBotaoVoltar().addActionListener(ev -> iniciarTelaPrincipal(usuarioCorrente));
+                    painelSair.getBotaoVoltar().addActionListener(ev -> {
+                        Database.log(8004, usuarioCorrente.getNome());
+                        iniciarTelaPrincipal(usuarioCorrente);
+                    });
                     setContentPane(painelSair);
                     revalidate();
                     repaint();
@@ -469,9 +545,13 @@ public class CofreApp extends JFrame {
     }
 
     private void iniciarTelaConsulta(Usuario usuario) {
+        Database.log(7001, usuario.getNome());
         JPanel consultaPanel = new TelaConsultaArquivosPanel(
                 usuario,
-                e -> iniciarTelaPrincipal(usuario) // onVoltar
+                e -> {
+                    Database.log(7002, usuario.getNome());
+                    iniciarTelaPrincipal(usuario); // onVoltar
+                }
         );
         setContentPane(consultaPanel);
         revalidate();
@@ -486,4 +566,18 @@ public class CofreApp extends JFrame {
         };
     }
 
+    public static long diferencaEmMinutos(Timestamp tempo) {
+        if (tempo == null) return 3; // força desbloqueio se nunca bloqueado
+
+        // Timestamp do banco (UTC) → convertido para horário local
+        ZonedDateTime tempoPassadoLocal = tempo.toInstant().atZone(ZoneId.systemDefault());
+
+        // Agora em horário local
+        ZonedDateTime agoraLocal = ZonedDateTime.now(ZoneId.systemDefault());
+
+        Duration duracao = Duration.between(tempoPassadoLocal, agoraLocal);
+
+        return duracao.toMinutes();
+    }
 }
+

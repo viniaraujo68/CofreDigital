@@ -1,5 +1,9 @@
+// Francisco Lou Gardenberg - 2211275
+// Vinicius Barros Pessoa de Araujo - 2210392
+
 package ui;
 
+import Database.Database;
 import model.Usuario;
 
 import javax.swing.*;
@@ -23,6 +27,8 @@ public class CadastroPanel extends JPanel {
         setLayout(new BorderLayout(20, 20));
         setBorder(BorderFactory.createEmptyBorder(20, 40, 20, 40));
 
+        if (usuario != null) Database.log(6001, usuario.getNome());
+
         JLabel titulo = new JLabel("Cadastre-se");
         titulo.setFont(new Font("SansSerif", Font.BOLD, 18));
         titulo.setHorizontalAlignment(SwingConstants.CENTER);
@@ -42,16 +48,17 @@ public class CadastroPanel extends JPanel {
         botaoSelecionarChave.addActionListener(onSelecionarChave);
 
         campoFraseSecreta = new JPasswordField(20);
+        String[] opcoesGrupo;
+
         if (usuario == null) {
-            System.out.println("oferecerá só administrador");
-            campoGrupo = new JComboBox<>(new String[]{"Administrador"});
+            opcoesGrupo = new String[]{"Administrador"};
         } else if (usuario.getGrupoId() == 1) {
-            System.out.println("oferecerá administrador e usuario");
-            campoGrupo = new JComboBox<>(new String[]{"Administrador", "Usuario"});
+            opcoesGrupo = new String[]{"Administrador", "Usuario"};
         } else {
-            System.out.println("oferecerá só usuário");
-            campoGrupo = new JComboBox<>(new String[]{"Usuario"});
+            opcoesGrupo = new String[]{};
         }
+
+        campoGrupo = new JComboBox<>(opcoesGrupo);
 
         campoSenha = new JPasswordField(20);
         campoConfirmarSenha = new JPasswordField(20);

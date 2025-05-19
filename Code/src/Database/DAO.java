@@ -1,3 +1,6 @@
+// Francisco Lou Gardenberg - 2211275
+// Vinicius Barros Pessoa de Araujo - 2210392
+
 package Database;
 
 import model.Usuario;
@@ -6,6 +9,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.sql.Timestamp;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,6 +68,8 @@ public class DAO {
                     u.setGrupoId(rs.getInt("grupo_id"));
                     u.setSenhaHash(rs.getString("senha_hash"));
                     u.setTotpSecretoCriptografado(rs.getBytes("totp_secreto_criptografado"));
+                    u.setTentativasSenha(rs.getInt("tentativas_senha"));
+                    u.setTentativasTotp(rs.getInt("tentativas_totp"));
                     return u;
                 } else {
                     throw new Exception("Usuário não encontrado.");
@@ -135,6 +143,22 @@ public class DAO {
 
 
 
+    public int getQtdTentativas(model.Usuario usuario, String coluna) throws Exception {
+        String query = "SELECT " + coluna + " FROM Usuarios WHERE uid = ?";
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1); // ou rs.getInt(coluna)
+                } else {
+                    throw new Exception("Usuário não encontrado com UID: " + usuario.getUid());
+                }
+            }
+        }
+    }
+
     public int incrementaQtdTentativas(model.Usuario usuario, String coluna) throws Exception {
         String query = "UPDATE Usuarios SET " + coluna + " = " + coluna + " + 1 WHERE uid = ?";
 
@@ -144,25 +168,31 @@ public class DAO {
         }
     }
 
-    public int getQtdTentativas(model.Usuario usuario, String coluna) throws Exception {
-        String query = "SELECT " + coluna + " FROM Usuarios WHERE uid = ?";
+    public int resetarTentativas(model.Usuario usuario, String coluna) throws Exception {
+        String query = "UPDATE Usuarios SET " + coluna + " = 0 WHERE uid = ?";
 
         try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
             stmt.setInt(1, usuario.getUid());
             return stmt.executeUpdate(); // Retorna número de linhas afetadas
         }
     }
+
 
     public int atualizarUltimoBloqueio(model.Usuario usuario) throws Exception {
-        String query = "UPDATE Usuarios SET last_time_blocked = CURRENT_TIMESTAMP WHERE uid = ?";
+        String query = "UPDATE Usuarios SET last_time_blocked = ? WHERE uid = ?";
+
+        // Gera o timestamp com fuso de São Paulo
+        ZonedDateTime agoraSP = ZonedDateTime.now(ZoneId.of("America/Sao_Paulo"));
+        Timestamp timestampSP = Timestamp.valueOf(agoraSP.toLocalDateTime());
 
         try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
-            stmt.setInt(1, usuario.getUid());
-            return stmt.executeUpdate(); // Retorna número de linhas afetadas
+            stmt.setTimestamp(1, timestampSP);
+            stmt.setInt(2, usuario.getUid());
+            return stmt.executeUpdate();
         }
     }
 
-    public java.sql.Timestamp consultarUltimoBloqueio(model.Usuario usuario) throws Exception {
+    public Timestamp consultarUltimoBloqueio(model.Usuario usuario) throws Exception {
         String query = "SELECT last_time_blocked FROM Usuarios WHERE uid = ?";
 
         try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
@@ -177,7 +207,6 @@ public class DAO {
             }
         }
     }
-
 
     public int getNumeroAcessos(model.Usuario usuario) throws Exception {
         String query = "SELECT num_acessos FROM Usuarios WHERE UID = ?";

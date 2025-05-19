@@ -1,7 +1,12 @@
+// Francisco Lou Gardenberg - 2211275
+// Vinicius Barros Pessoa de Araujo - 2210392
+
 package ui;
 
 import Database.DAO;
+import Database.Database;
 import model.Usuario;
+import cofre.CofreApp;
 import security.CryptoUtil;
 import security.CertificateUtility;
 
@@ -76,7 +81,10 @@ public class TelaConsultaArquivosPanel extends JPanel {
         JButton btnListar = new JButton("Listar Arquivos");
         JButton btnVoltar = new JButton("Voltar ao Menu");
 
-        btnListar.addActionListener(e -> listarArquivos(usuario));
+        btnListar.addActionListener(e -> {
+            Database.log(7003, usuario.getNome());
+            listarArquivos(usuario);
+        });
         btnVoltar.addActionListener(onVoltar);
 
         botoes.add(btnListar);
@@ -99,6 +107,7 @@ public class TelaConsultaArquivosPanel extends JPanel {
                 return;
             }
             String fraseSecreta = new String(campoFrase.getPassword());
+            String fraseSecretaAdmin = CofreApp.fraseSecreta;
 
             // ETAPA 2 – Seleciona a pasta que contém os arquivos index.*
             JFileChooser fileChooser = new JFileChooser();
@@ -111,6 +120,13 @@ public class TelaConsultaArquivosPanel extends JPanel {
             }
 
             File pasta = fileChooser.getSelectedFile();
+
+            if (pasta == null || !pasta.exists() || !pasta.isDirectory()) {
+                Database.log(7004, usuario.getNome());
+                JOptionPane.showMessageDialog(this, "Caminho inválido ou inacessível. Por favor, selecione um diretório válido.");
+                return;
+            }
+
             File arqIndexEnc = new File(pasta, "index.enc");
             File arqIndexEnv = new File(pasta, "index.env");
             File arqIndexAsd = new File(pasta, "index.asd");

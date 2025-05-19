@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS Usuarios (
                                         senha_hash TEXT NOT NULL,
                                         totp_secreto_criptografado BLOB NOT NULL,
                                         num_acessos INTEGER NOT NULL DEFAULT 0,
+                                        tentativas_senha INTEGER NOT NULL DEFAULT 0,
+                                        tentativas_totp INTEGER NOT NULL DEFAULT 0,
+                                        last_time_blocked TIMESTAMP DEFAULT NULL,
                                         FOREIGN KEY (grupo_id) REFERENCES Grupos(GID)
     );
 
@@ -31,11 +34,10 @@ CREATE TABLE IF NOT EXISTS Mensagens (
 
 CREATE TABLE IF NOT EXISTS Registros (
                                          RID INTEGER PRIMARY KEY AUTOINCREMENT,
-                                         UID INTEGER,
                                          MID INTEGER NOT NULL,
+                                         usuario TEXT,
                                          arquivo TEXT,
                                          data_hora TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-    FOREIGN KEY (UID) REFERENCES Usuarios(UID),
     FOREIGN KEY (MID) REFERENCES Mensagens(MID)
     );
 
