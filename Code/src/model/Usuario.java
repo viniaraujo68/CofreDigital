@@ -10,6 +10,8 @@ public class Usuario {
     private int grupoId;
     private String senhaHash;
     private byte[] totpSecretoCriptografado;
+    private int tentativasSenha;
+    private int tentativasTotp;
 
     // Getters e Setters
 
@@ -86,5 +88,24 @@ public class Usuario {
 
     public void setTotpSecretoCriptografado(byte[] totpSecretoCriptografado) {
         this.totpSecretoCriptografado = totpSecretoCriptografado;
+    }
+
+    public int getTentativas(String tipo) {
+        switch (tipo) {
+            case "tentativasSenha":
+                return this.tentativasSenha;
+            case "tentativasTotp":
+                return this.tentativasTotp;
+            default:
+                throw new IllegalArgumentException("Tipo de tentativa inválido: " + tipo);
+        }
+    }
+    
+    public void setTentativasSenha(int qtd) {
+        this.tentativasSenha = qtd;
+    }
+
+    public void setTentativasTotp(int qtd) {
+        this.tentativasTotp = qtd;
     }
 }

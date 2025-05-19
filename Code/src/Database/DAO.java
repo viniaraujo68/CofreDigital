@@ -6,6 +6,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 public class DAO {
 
@@ -93,10 +95,94 @@ public class DAO {
         }
     }
 
+    public byte[] getChavePrivadaAdmin() throws Exception {
+        String sql = """
+        SELECT c.chave_privada_criptografada
+        FROM Chaveiro c
+        JOIN Usuarios u ON c.UID = u.UID
+        WHERE u.grupo_id = 1
+        LIMIT 1
+    """;
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getBytes("chave_privada_criptografada");
+            } else {
+                throw new Exception("Chave privada do administrador não encontrada.");
+            }
+        }
+    }
+
+    public byte[] getCertificadoAdmin() throws Exception {
+        String sql = """
+        SELECT c.certificado_digital
+        FROM Chaveiro c
+        JOIN Usuarios u ON c.UID = u.UID
+        WHERE u.grupo_id = 1
+        LIMIT 1
+    """;
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getBytes("certificado_digital");
+            } else {
+                throw new Exception("Certificado do administrador não encontrado.");
+            }
+        }
+    }
+
+
+
+    public int incrementaQtdTentativas(model.Usuario usuario, String coluna) throws Exception {
+        String query = "UPDATE Usuarios SET " + coluna + " = " + coluna + " + 1 WHERE uid = ?";
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+            return stmt.executeUpdate(); // Retorna número de linhas afetadas
+        }
+    }
+
+    public int getQtdTentativas(model.Usuario usuario, String coluna) throws Exception {
+        String query = "SELECT " + coluna + " FROM Usuarios WHERE uid = ?";
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+            return stmt.executeUpdate(); // Retorna número de linhas afetadas
+        }
+    }
+
+    public int atualizarUltimoBloqueio(model.Usuario usuario) throws Exception {
+        String query = "UPDATE Usuarios SET last_time_blocked = CURRENT_TIMESTAMP WHERE uid = ?";
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+            return stmt.executeUpdate(); // Retorna número de linhas afetadas
+        }
+    }
+
+    public java.sql.Timestamp consultarUltimoBloqueio(model.Usuario usuario) throws Exception {
+        String query = "SELECT last_time_blocked FROM Usuarios WHERE uid = ?";
+
+        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+            stmt.setInt(1, usuario.getUid());
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getTimestamp("last_time_blocked");
+                } else {
+                    throw new Exception("Usuário não encontrado com UID: " + usuario.getUid());
+                }
+            }
+        }
+    }
+
+
     public int getNumeroAcessos(model.Usuario usuario) throws Exception {
         String query = "SELECT num_acessos FROM Usuarios WHERE UID = ?";
         try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
-            stmt.setInt(1, usuario.getUid());
+                    stmt.setInt(1, usuario.getUid());
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 return rs.getInt("num_acessos");
@@ -104,6 +190,41 @@ public class DAO {
                 throw new Exception("Usuário não encontrado.");
             }
         }
+    }
+
+    public List<String[]> listarArquivosSecretos(model.Usuario usuario) throws Exception {
+        String query = "SELECT nome_arquivo FROM Arquivos WHERE UID = ?";
+        List<String[]> arquivos = new ArrayList<>();
+
+        // Simulação de dados - substitua por query real quando tiver a tabela
+        arquivos.add(new String[]{"segredo1.txt", usuario.getLogin(), usuario.getGrupo()});
+        arquivos.add(new String[]{"relatorio-final.pdf", usuario.getLogin(), usuario.getGrupo()});
+        arquivos.add(new String[]{"dados-encriptados.zip", usuario.getLogin(), usuario.getGrupo()});
+
+        return arquivos;
+//        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+//            stmt.setInt(1, usuario.getUid());
+//            ResultSet rs = stmt.executeQuery();
+//            if (rs.next()) {
+//                return new String[]{rs.getString("nome_arquivo")};
+//            } else {
+//                throw new Exception("Usuário não encontrado.");
+//            }
+//        }
+    }
+
+    public int getNumeroConsultas(model.Usuario usuario) throws Exception {
+        String query = "SELECT num_consultas FROM Usuarios WHERE UID = ?";
+        return 1;
+//        try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
+//            stmt.setInt(1, usuario.getUid());
+//            ResultSet rs = stmt.executeQuery();
+//            if (rs.next()) {
+//                return rs.getInt("num_consultas");
+//            } else {
+//                throw new Exception("Usuário não encontrado.");
+//            }
+//        }
     }
 
     public boolean inserirUsuario(model.Usuario usuario) throws Exception {
@@ -139,12 +260,12 @@ public class DAO {
     }
 
 
-    public void insertChaveiro(int uid, String certificado, String chavePrivada) throws Exception {
+    public void insertChaveiro(int uid, byte[] certificado, byte[] chavePrivada) throws Exception {
         String query = "INSERT INTO Chaveiro (uid, certificado_digital, chave_privada_criptografada) VALUES (?, ?, ?)";
         try (PreparedStatement stmt = Database.getInstance().connection.prepareStatement(query)) {
             stmt.setInt(1, uid);
-            stmt.setString(2, certificado);
-            stmt.setString(3, chavePrivada);
+            stmt.setBytes(2, certificado);
+            stmt.setBytes(3, chavePrivada);
             stmt.executeUpdate();
         }
     }

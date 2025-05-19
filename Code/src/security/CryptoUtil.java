@@ -3,6 +3,8 @@ package security;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.File;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -22,7 +24,7 @@ public class CryptoUtil {
             SecureRandom sr = SecureRandom.getInstance("SHA1PRNG");
             sr.setSeed(senhaBytes);
 
-            byte[] chave = new byte[16]; // 128 bits
+            byte[] chave = new byte[32];
             sr.nextBytes(chave);
 
             return new SecretKeySpec(chave, "AES");
@@ -48,6 +50,15 @@ public class CryptoUtil {
             return cipher.doFinal(dadosCriptografados);
         } catch (Exception e) {
             throw new RuntimeException("Erro ao descriptografar: " + e.getMessage(), e);
+        }
+    }
+
+    public static byte[] descriptografarArquivo(File arquivo, SecretKey chaveAES) {
+        try {
+            byte[] dadosCriptografados = Files.readAllBytes(arquivo.toPath());
+            return descriptografar(dadosCriptografados, chaveAES);
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao descriptografar arquivo: " + e.getMessage(), e);
         }
     }
 

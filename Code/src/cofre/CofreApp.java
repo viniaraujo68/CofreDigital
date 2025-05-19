@@ -12,12 +12,14 @@ import Database.DAO;
 import security.*;
 import ui.LoginTotpPanel;
 import ui.SairPanel;
+import ui.TelaConsultaArquivosPanel;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
 
 public class CofreApp extends JFrame {
@@ -102,11 +104,41 @@ public class CofreApp extends JFrame {
 
         CertificateUtility util;
         String loginExtraido;
+        byte[] certificadoBytes;
+        byte[] challenge;
+        byte[] signature;
+        byte[] chavePrivadaCripto;
 
         try {
             util = new CertificateUtility(caminhoCertificado);
             util.getCertificado().checkValidity();
 
+            //COMECO
+            File chavePrivadaFile = new File(caminhoChavePrivada);
+            PrivateKey chavePrivada = CertificateUtility.carregarChavePrivadaCriptografada(chavePrivadaFile, fraseSecreta);
+
+            SecretKey chaveAESFrase = CryptoUtil.gerarChaveAES(fraseSecreta);
+            byte[] chavePrivadaDescriptografada = CryptoUtil.descriptografarArquivo(chavePrivadaFile, chaveAESFrase);
+
+            // 3. Ler certificado
+            File certFile = new File(caminhoCertificado);
+            java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+            java.security.cert.X509Certificate certificado = (java.security.cert.X509Certificate)
+                    cf.generateCertificate(new java.io.FileInputStream(certFile));
+            certificadoBytes = certificado.getEncoded();
+
+            challenge = new byte[8192];
+            new SecureRandom().nextBytes(challenge);
+
+            // 5. Assinar o desafio
+            java.security.Signature signer = java.security.Signature.getInstance("SHA256withRSA");
+            signer.initSign(chavePrivada);
+            signer.update(challenge);
+            signature = signer.sign();
+
+            // 6. Criptografar chave privada novamente para salvar
+            chavePrivadaCripto = CryptoUtil.criptografar(chavePrivadaDescriptografada, chaveAESFrase);
+            // FIM
             loginExtraido = extrairEmailDoSubject(util.getSujeito());
 
             if (loginExtraido == null || !loginExtraido.matches("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")) {
@@ -205,6 +237,8 @@ public class CofreApp extends JFrame {
             usuario.setGrupoId(stringToGroup(grupo)); // grupo_id "Administrador", você pode obter dinamicamente se quiser
             usuario.setSenhaHash(senhaHash);
             usuario.setTotpSecretoCriptografado(totpCriptografadoByte);
+            usuario.setTentativasSenha(0);
+            usuario.setTentativasTotp(0);
 
 
             DAO dao = DAO.getInstance();
@@ -224,14 +258,14 @@ public class CofreApp extends JFrame {
             // 7. Ler e criptografar a chave privada
             byte[] chaveBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoChavePrivada));
             byte[] chavePrivadaCriptografada = security.CryptoUtil.criptografar(chaveBytes, chaveAES);
-            String chavePrivadaCriptografagaTexto = new String(chavePrivadaCriptografada, StandardCharsets.UTF_8);
+            //String chavePrivadaCriptografagaTexto = new String(chavePrivadaCriptografada, StandardCharsets.UTF_8);
 
             // 8. Ler o certificado como texto
             byte[] certBytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caminhoCertificado));
-            String certificadoTexto = new String(certBytes, java.nio.charset.StandardCharsets.UTF_8);
+            //String certificadoTexto = new String(certBytes, java.nio.charset.StandardCharsets.UTF_8);
 
             // 9. Salvar no chaveiro
-            dao.insertChaveiro(uid, certificadoTexto, chavePrivadaCriptografagaTexto);
+            dao.insertChaveiro(uid, chavePrivadaCriptografada, chavePrivadaCriptografada);
 
             // 10. Finalizar
             JOptionPane.showMessageDialog(this, "Administrador cadastrado com sucesso!");
@@ -239,9 +273,9 @@ public class CofreApp extends JFrame {
             repaint();
             if (usuarioCorrente == null) {
                 JOptionPane.showMessageDialog(this, "Sistema pronto para login.");
-            }
-
-            iniciarLoginEmail();
+                iniciarLoginEmail();
+            } else
+                iniciarCadastro(usuarioCorrente);
 
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
@@ -250,7 +284,6 @@ public class CofreApp extends JFrame {
                     JOptionPane.ERROR_MESSAGE);
             e.printStackTrace();
         }
-        iniciarCadastro(usuarioCorrente);
     }
 
 
@@ -351,6 +384,7 @@ public class CofreApp extends JFrame {
 
                 JOptionPane.showMessageDialog(this, "Senha incorreta.", "Erro", JOptionPane.ERROR_MESSAGE);
 
+
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Erro ao verificar senha: " + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
                 ex.printStackTrace();
@@ -408,25 +442,11 @@ public class CofreApp extends JFrame {
 
                 // onConsulta
                 e -> {
-//                    JPanel consultaPanel = new TelaConsultaArquivosPanel(usuario); // ou só (this)
-//                    setContentPane(consultaPanel);
-//                    revalidate();
-//                    repaint();
-                      System.out.println("Placeholder");
+                    iniciarTelaConsulta(usuario);
                 },
 
                 // onSair
                 e -> {
-//                    int opcao = JOptionPane.showConfirmDialog(
-//                            this,
-//                            "Deseja realmente sair e retornar à tela de login?",
-//                            "Sair",
-//                            JOptionPane.YES_NO_OPTION
-//                    );
-//                    if (opcao == JOptionPane.YES_OPTION) {
-//                        usuarioCorrente = null;
-//                        iniciarLoginEmail();
-//                    }
                     SairPanel painelSair = new SairPanel(null, null, null);
 
                     painelSair.getBotaoEncerrarSessao().addActionListener(ev-> {
@@ -444,6 +464,16 @@ public class CofreApp extends JFrame {
 
 
         setContentPane(painel);
+        revalidate();
+        repaint();
+    }
+
+    private void iniciarTelaConsulta(Usuario usuario) {
+        JPanel consultaPanel = new TelaConsultaArquivosPanel(
+                usuario,
+                e -> iniciarTelaPrincipal(usuario) // onVoltar
+        );
+        setContentPane(consultaPanel);
         revalidate();
         repaint();
     }
